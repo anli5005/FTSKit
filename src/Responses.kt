@@ -6,7 +6,8 @@ import kotlin.reflect.KClass
 
 internal data class FTSResponse(
         val status: String,
-        val msgList: List<FTSMessage>
+        val msgList: List<FTSMessage>,
+        val serverTime: String?
 )
 
 internal class FTSMessageTypeAdapter: TypeAdapter<FTSMessage> {
@@ -16,8 +17,8 @@ internal class FTSMessageTypeAdapter: TypeAdapter<FTSMessage> {
 
     companion object {
         val types: Map<String, KClass<out FTSMessage>> = mapOf(
-                "loginsuccess" to FTSLoginSuccessMessage::class,
-                "loginerror" to FTSErrorMessage::class
+                "loginerror" to FTSErrorMessage::class,
+                "msgbox" to FTSMsgBoxMessage::class
         )
         val headers: Map<KClass<out FTSMessage>, String> = mapOf(*(types.entries.map { Pair(it.value, it.key) }.toTypedArray()))
     }
@@ -25,5 +26,13 @@ internal class FTSMessageTypeAdapter: TypeAdapter<FTSMessage> {
 
 @TypeFor(field = "header", adapter = FTSMessageTypeAdapter::class)
 internal open class FTSMessage(val header: String)
-internal class FTSLoginSuccessMessage: FTSMessage(FTSMessageTypeAdapter.headers[FTSLoginSuccessMessage::class]!!)
+internal class FTSMsgBoxMessage: FTSMessage(FTSMessageTypeAdapter.headers[FTSMsgBoxMessage::class]!!)
 internal class FTSErrorMessage(header: String): FTSMessage(header)
+
+internal enum class FTSStatus {
+    DONE;
+
+    val text: String get() = when (this) {
+        DONE -> "Connected to Server"
+    }
+}

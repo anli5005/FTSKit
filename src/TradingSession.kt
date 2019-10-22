@@ -8,21 +8,24 @@ import io.ktor.client.features.websocket.webSocket
 import io.ktor.http.cio.websocket.Frame
 import io.ktor.http.cio.websocket.readText
 import io.ktor.util.KtorExperimentalAPI
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.util.*
 import kotlin.coroutines.Continuation
-import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import kotlin.reflect.KClass
-import kotlin.reflect.full.isSubtypeOf
-import kotlin.reflect.jvm.javaType
 
+/**
+ A session managing a connection to the FTS market simulator.
+ **/
 @KtorExperimentalAPI
 class TradingSession(val url: String, val case: String, var username: String, var password: String) {
     private val client = HttpClient { install(WebSockets) }
 
     private var _isConnected = false
+    /** Whether the session is connected to FTS. **/
     val isConnected get() = _isConnected
 
     private val job = Job()
@@ -34,10 +37,22 @@ class TradingSession(val url: String, val case: String, var username: String, va
     private val klaxon = Klaxon()
 
     private var continuations: MutableMap<KClass<out FTSMessage>, MutableList<Continuation<FTSMessage>>> = mutableMapOf()
+    private var statusContinuations: ArrayDeque<Continuation<String>> = ArrayDeque()
 
+    private var lastStatus: String? = null
+    private var lastServerTime: String? = null
+    /** The last server time received. **/
+    val cachedServerTime: String? get() = lastServerTime
+
+    private var _pendingOrders = LinkedList<PendingOrder<*>>()
+    /** List of pending orders managed by this session. **/
+    val pendingOrders get() = _pendingOrders.toList()
+
+    /** Connects and logs in to FTS. **/
     fun connect() {
         if (!_isConnected) {
             _isConnected = true
+            lastStatus = null
             scope.launch {
                 while (_isConnected) {
                     client.webSocket(urlString = url) {
@@ -45,21 +60,33 @@ class TradingSession(val url: String, val case: String, var username: String, va
 
                         socketSession = this
 
-                        while (!messages.isEmpty()) {
-                            println("Sent ${messages.first}.")
-                            send(Frame.Text(messages.removeFirst()))
+                        launch {
+                            // login()
+                            while (!messages.isEmpty()) {
+                                println("Sent ${messages.first}.")
+                                send(Frame.Text(messages.removeFirst()))
+                            }
                         }
 
                         while (true) {
                             val frame = incoming.receive()
                             if (frame is Frame.Text) {
-                                val res = klaxon.parse<FTSResponse>(frame.readText())
-                                if (res?.msgList.isNullOrEmpty()) {
-                                    println("Ping received.")
-                                } else {
-                                    println("Received ${res!!.msgList!!.size} messages.")
+                                val text = frame.readText()
+                                val res = klaxon.parse<FTSResponse>(text)
+
+                                if (res != null) {
+                                    if (lastStatus != res.status) {
+                                        println("Status: ${res.status}")
+                                        lastStatus = res.status
+                                    } else {
+                                        // println("Ping received.")
+                                    }
                                 }
+
                                 res?.msgList?.forEach { handle(it) }
+                                res?.status?.let { handleStatus(it) }
+
+                                res?.serverTime?.let { lastServerTime = it }
                             }
                         }
                     }
@@ -86,12 +113,17 @@ class TradingSession(val url: String, val case: String, var username: String, va
 
     private fun handle(message: FTSMessage) {
         when (message) {
-            is FTSLoginSuccessMessage -> handleLoginSuccess(message)
             is FTSErrorMessage -> handleError(message)
             else -> println("Unrecognized message header: ${message.header}.")
         }
 
         continuations.remove(message::class)?.forEach { it.resume(message) }
+    }
+
+    private fun handleStatus(status: String) {
+        while (statusContinuations.isNotEmpty()) {
+            statusContinuations.removeLast().resume(status)
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -105,8 +137,20 @@ class TradingSession(val url: String, val case: String, var username: String, va
         } as TMessage
     }
 
-    private fun handleLoginSuccess(_msg: FTSLoginSuccessMessage) {
-        println("Login succeeded.")
+    private suspend fun waitForStatus(where: (String) -> Boolean): String {
+        var status: String? = lastStatus
+        while (status == null || !where(status)) {
+            status = suspendCoroutine { statusContinuations.add(it) }
+        }
+        return status
+    }
+
+    private suspend fun waitForStatus(status: String): String {
+        return waitForStatus { it == status }
+    }
+
+    private suspend fun waitForStatus(status: FTSStatus): String {
+        return waitForStatus(status.text)
     }
 
     private fun handleError(msg: FTSErrorMessage) {
@@ -115,11 +159,24 @@ class TradingSession(val url: String, val case: String, var username: String, va
 
     suspend fun login() {
         send(FTSLoginRequest(case, username, password))
-        waitFor(FTSLoginSuccessMessage::class)
+        waitForStatus(FTSStatus.DONE)
     }
 
-    suspend fun place(order: StockOrder) {
+    /**
+     Submits an order to FTS.
+     **/
+    suspend fun <TOrder: StockOrder>place(order: TOrder): PendingOrder<TOrder> {
+        val pending = PendingOrder(order)
+        if (!order.completesInstantly) {
+            _pendingOrders.add(pending)
+        }
+
         send(order.asRequest)
+
+        if (order.completesInstantly) {
+            pending.registerCompletion()
+        }
+        return pending
     }
 
     /* fun disconnect() {
