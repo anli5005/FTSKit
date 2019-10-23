@@ -1,6 +1,7 @@
 package dev.anli.ftskit.test
 
 import dev.anli.ftskit.*
+import dev.anli.ftskit.data.FTS1000StocksCaseTickerDatabase
 import io.ktor.util.KtorExperimentalAPI
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -10,16 +11,11 @@ import org.junit.Test
 class TradingSessionTest {
     @Test
     fun test() = runBlocking {
-        val ticker = "NFLX"
+        val ticker = FTS1000StocksCaseTickerDatabase.infoForSecurityName("Apple, Inc.")!!.ticker
 
         val session = makeSession()
-        session.connect()
-        session.login()
-        assert(session.isConnected)
-        session.place(MarketBuyOrder(ticker, 1000))
-        delay(60 * 1000)
-        session.place(MarketSellOrder(ticker, 1000))
-        delay(10000)
+        session.start()
+        session.place(MarketBuyOrder(ticker, 1))
         println("Test complete.")
     }
 }
