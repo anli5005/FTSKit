@@ -41,8 +41,16 @@ internal class FTSPositionGridMessage(
         null,
         optionList
 ) {
-    fun parse(): List<List<String>> {
-        return optionList!!.map { parseRow(it) }
+    fun parse(): List<Position> {
+        return optionList!!.map { parseRow(it) }.map {
+            Position(
+                    it[0],
+                    it[1].removing(",").toInt(),
+                    it[2].removing(",").toIntBy100(),
+                    it[3].removing(",").toIntBy100(),
+                    it[4].removing(",").toIntBy100()
+            )
+        }
     }
 }
 

@@ -58,6 +58,17 @@ class TradingSession(val url: String, val case: String, private var username: St
 
     val tickerDatabase = FTSTickerDatabase()
 
+    private var _positions: List<Position>? = null
+    val positions get() = _positions
+
+    var loggingLevel = 0
+
+    private fun log(level: Int, message: () -> String) {
+        if (loggingLevel >= level) {
+            println(message())
+        }
+    }
+
     /** Connects to FTS. **/
     fun start() {
         if (!_isStarted) {
@@ -66,7 +77,7 @@ class TradingSession(val url: String, val case: String, private var username: St
             scope.launch {
                 while (_isStarted) {
                     client.webSocket(urlString = url) {
-                        println("Connected!")
+                        log(3) { "Connected!" }
 
                         socketSession = this
                         while (connectContinuations.isNotEmpty()) {
@@ -81,7 +92,7 @@ class TradingSession(val url: String, val case: String, private var username: St
                             }
                         }
 
-                        while (true) {
+                        while (_isStarted) {
                             val frame = incoming.receive()
                             if (frame is Frame.Text) {
                                 val text = frame.readText()
@@ -89,7 +100,7 @@ class TradingSession(val url: String, val case: String, private var username: St
 
                                 if (res != null) {
                                     if (lastStatus != res.status) {
-                                        println("Status: ${res.status}")
+                                        log(3) { "Status: ${res.status}" }
                                         lastStatus = res.status
                                     }
                                 }
@@ -105,6 +116,8 @@ class TradingSession(val url: String, val case: String, private var username: St
                     socketSession = null
                     _isLoggedIn = false
                 }
+
+                print("Session complete.")
             }
         }
     }
@@ -115,7 +128,7 @@ class TradingSession(val url: String, val case: String, private var username: St
         }
 
         socketSession!!.send(Frame.Text(msg))
-        println("Sent $msg.")
+        log(5) { "Sent $msg." }
     }
 
     private suspend fun send(request: FTSRequest) {
@@ -127,7 +140,7 @@ class TradingSession(val url: String, val case: String, private var username: St
             is FTSErrorMessage -> handleError(message)
             is FTSPositionGridMessage -> handlePositionGrid(message)
             is FTSGetTickersMessage -> Unit
-            else -> println("Unrecognized message header: ${message.header}.")
+            else -> log(2) { "Unrecognized message header: ${message.header}." }
         }
 
         continuations.remove(message::class)?.forEach { it.resume(message) }
@@ -177,6 +190,7 @@ class TradingSession(val url: String, val case: String, private var username: St
     }
 
     private fun handlePositionGrid(msg: FTSPositionGridMessage) {
+        _positions = msg.parse()
     }
 
     private suspend fun login() {
@@ -207,11 +221,21 @@ class TradingSession(val url: String, val case: String, private var username: St
         waitForStatus { it == FTSStatus.DONE.text || it.isEmpty() }
     }
 
-    /* fun disconnect() {
-        if (_isConnected) {
-            _isConnected = false
+    suspend fun waitForPositions(forceFetch: Boolean = false): List<Position> {
+        if (forceFetch || _positions == null) {
+            waitFor(FTSPositionGridMessage::class)
         }
-    } */
+
+        return _positions!!
+    }
+
+    suspend fun end() {
+        if (_isStarted) {
+            _isStarted = false
+            send(FTSLogoutRequest)
+            socketSession?.close()
+        }
+    }
 
     inner class FTSTickerDatabase internal constructor(): AbstractTickerDatabase() {
         private var isRefreshing = false
@@ -228,7 +252,7 @@ class TradingSession(val url: String, val case: String, private var username: St
 
                 waitForLogin()
 
-                println("Refreshing ticker database...")
+                log(3) { "Refreshing ticker database..." }
 
                 var lastText: String? = null
                 var page = 0
@@ -239,7 +263,7 @@ class TradingSession(val url: String, val case: String, private var username: St
 
                 while (message == null || lastText != message.text) {
                     lastText = message?.text
-                    println("Refreshing ticker database... (Page ${page + 1})")
+                    log(4) { "Refreshing ticker database... (Page ${page + 1})" }
                     send(FTSGetTickersRequest(page * 100))
                     message = waitFor(FTSGetTickersMessage::class)
 
@@ -259,7 +283,7 @@ class TradingSession(val url: String, val case: String, private var username: St
                     refreshContinuations.removeLast().resume(Unit)
                 }
 
-                println("Ticker database refreshed.")
+                log(3) { "Ticker database refreshed." }
             }
         }
     }

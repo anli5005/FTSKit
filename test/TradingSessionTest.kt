@@ -11,11 +11,16 @@ import org.junit.Test
 class TradingSessionTest {
     @Test
     fun test() = runBlocking {
-        val ticker = FTS1000StocksCaseTickerDatabase.infoForSecurityName("Apple, Inc.")!!.ticker
-
         val session = makeSession()
         session.start()
-        session.place(MarketBuyOrder(ticker, 1))
-        println("Test complete.")
+        session.waitForLogin()
+        println("Connected.")
+
+        val positions = session.waitForPositions()
+        println("Positions: $positions")
+
+        session.waitForIdle()
+        session.end()
+        println("Done!")
     }
 }

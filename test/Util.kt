@@ -2,6 +2,7 @@ package dev.anli.ftskit.test
 
 import dev.anli.ftskit.TradingSession
 import io.ktor.util.KtorExperimentalAPI
+import kotlin.math.roundToInt
 
 @KtorExperimentalAPI
 fun makeSession(): TradingSession {

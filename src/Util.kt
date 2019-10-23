@@ -1,5 +1,7 @@
 package dev.anli.ftskit
 
+import kotlin.math.roundToInt
+
 internal fun parseRow(row: String): List<String> {
     return row
             .replace(Regex("<tr[^>]*>"), "")
@@ -17,3 +19,6 @@ fun <E>Collection<E>.indexOfOrNull(element: E): Int? {
     val index = indexOf(element)
     return if (index < 0) null else index
 }
+
+fun String.toIntBy100() = (toDouble() * 100).roundToInt()
+fun String.removing(str: String) = replace(str, "")
