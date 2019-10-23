@@ -6,6 +6,7 @@ version = "1.0-SNAPSHOT"
 
 plugins {
     kotlin("jvm") version "1.3.41"
+    id("maven-publish")
 }
 
 sourceSets["main"].withConvention(KotlinSourceSet::class) {
@@ -18,6 +19,7 @@ sourceSets["test"].withConvention(KotlinSourceSet::class) {
 
 dependencies {
     implementation(kotlin("stdlib-jdk8"))
+    implementation(kotlin("reflect"))
     implementation("io.ktor:ktor-client-websockets:1.2.5")
     implementation("io.ktor:ktor-client-cio:1.2.5")
     implementation("io.ktor:ktor-client-js:1.2.5")
@@ -29,6 +31,25 @@ dependencies {
 repositories {
     mavenCentral()
     jcenter()
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/anli5005/FTSKit")
+            credentials {
+                username = project.findProperty("gpr.user") as String? ?: System.getenv("GPR_USER")
+                password = project.findProperty("gpr.key") as String? ?: System.getenv("GPR_API_KEY")
+            }
+        }
+    }
+
+    publications {
+        register<MavenPublication>("gpr") {
+            from(components["java"])
+        }
+    }
 }
 
 val compileKotlin: KotlinCompile by tasks
